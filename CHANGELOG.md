@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-05-11
+### Added
+- Added Plugin Update Checker for automatic updates from GitHub.
+- Added branch-only update checks against the GitHub `main` branch.
+- Added optional GitHub token support through `PLUGIN_UPDATE_GITHUB_TOKEN`.
+- Added a WordPress.org-style `readme.txt` with Jason Cox as the only listed contributor.
+
+### Improved
+- Updated plugin metadata and WordPress compatibility to 6.9.4.
+
 ## [1.8.0] - 2026-04-18
 ### Added
 - Renamed the visible plugin name to Members-Only Media.
@@ -63,4 +73,3 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Intermittent lock icon display.
 - 404s after migration.
-
