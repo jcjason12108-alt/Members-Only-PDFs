@@ -18,7 +18,7 @@ Audio and video are not included yet because they need byte-range streaming supp
 ## Requirements
 
 - WordPress 5.8 or newer
-- Compatible up to WordPress 6.9.4
+- Compatible up to WordPress 7.0
 - PHP 7.4 or newer
 - Local WordPress uploads storage under `wp-content/uploads`
 - Apache/LiteSpeed, or an Nginx rule that blocks direct access to the protected folder
@@ -170,7 +170,7 @@ Important limitations:
 Expected to work with:
 
 - WordPress 5.8+
-- Tested up to WordPress 6.9.4
+- Tested up to WordPress 7.0
 - PHP 7.4+
 - Apache and LiteSpeed
 - Nginx with the required deny rule

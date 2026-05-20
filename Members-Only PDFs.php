@@ -3,9 +3,9 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives so only logged-in users (with allowed roles) can view them. Per-file role checkboxes, pretty URLs with original filename, protected URL field, auto .htaccess for uploads/members-only, Repair Routes button, lock icon in Media Library, and configurable redirects (login + forbidden).
- * Version: 1.8.1
+ * Version: 1.8.2
  * Requires at least: 5.8
- * Tested up to: 6.9.4
+ * Tested up to: 7.0
  * Requires PHP: 7.4
  * Author: Jason Cox
  * Author URI: https://github.com/jcjason12108-alt
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.8.1');
+define('MOP_VERSION',        '1.8.2');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ROLES',     '_mop_allowed_roles');    // array of role slugs per file
@@ -120,7 +120,7 @@ add_filter('query_vars', function ($vars) {
 add_action('admin_notices', function () {
     if (!current_user_can('manage_options')) return;
 
-    if (isset($_GET['mop_repaired']) && $_GET['mop_repaired'] === '1') {
+    if (isset($_GET['mop_repaired']) && sanitize_text_field(wp_unslash($_GET['mop_repaired'])) === '1') {
         echo '<div class="notice notice-success is-dismissible"><p>Members-Only Media: Routes were flushed.</p></div>';
     }
 
@@ -226,7 +226,11 @@ add_action('admin_init', function () {
 });
 
 function mop_render_settings_page() {
-    if (current_user_can('manage_options') && isset($_POST['mop_repair_routes'])) {
+    if (isset($_POST['mop_repair_routes'])) {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage Members-Only Media settings.', 'members-only-pdfs'));
+        }
+
         check_admin_referer('mop_repair_routes');
         mop_register_rewrites();
         flush_rewrite_rules(false);
@@ -234,8 +238,12 @@ function mop_render_settings_page() {
         exit;
     }
 
-    if (current_user_can('manage_options') && isset($_POST['mop_unlock_attachment'])) {
-        $attachment_id = absint($_POST['mop_attachment_id'] ?? 0);
+    if (isset($_POST['mop_unlock_attachment'])) {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage Members-Only Media settings.', 'members-only-pdfs'));
+        }
+
+        $attachment_id = isset($_POST['mop_attachment_id']) ? absint(wp_unslash($_POST['mop_attachment_id'])) : 0;
         check_admin_referer('mop_unlock_attachment_' . $attachment_id);
 
         $result = mop_unlock_attachment($attachment_id);
@@ -276,7 +284,8 @@ function mop_render_settings_notices(): void {
     }
 
     if (isset($_GET['mop_unlock_error'])) {
-        echo '<div class="notice notice-error is-dismissible"><p>Members-Only Media: ' . esc_html(wp_unslash($_GET['mop_unlock_error'])) . '</p></div>';
+        $message = sanitize_text_field(wp_unslash($_GET['mop_unlock_error']));
+        echo '<div class="notice notice-error is-dismissible"><p>Members-Only Media: ' . esc_html($message) . '</p></div>';
     }
 }
 
@@ -343,6 +352,12 @@ function mop_render_secured_files_table(): void {
 }
 
 function mop_sanitize_options($in) {
+    if (!current_user_can('manage_options')) {
+        return get_option(MOP_OPTION, []);
+    }
+
+    $in = is_array($in) ? wp_unslash($in) : [];
+
     return [
         'redirect_mode'  => in_array(($in['redirect_mode'] ?? 'login'), ['login','page','url'], true) ? $in['redirect_mode'] : 'login',
         'redirect_page'  => max(0, intval($in['redirect_page'] ?? 0)),
@@ -453,6 +468,7 @@ JS;
 add_filter('attachment_fields_to_save', function ($post, $attachment) {
     $id = (int)$post['ID'];
     if (!mop_is_supported_attachment($id)) return $post;
+    if (!current_user_can('edit_post', $id)) return $post;
 
     // Protect toggle
     $want_protected = isset($attachment['mop_members_only']) ? '1' : '0';
@@ -476,11 +492,11 @@ add_filter('attachment_fields_to_save', function ($post, $attachment) {
     // Allowed roles from submitted checkbox values, with CSV kept as a fallback.
     $roles = [];
     if (!empty($attachment['mop_allowed_roles']) && is_array($attachment['mop_allowed_roles'])) {
-        $roles = array_map('sanitize_text_field', $attachment['mop_allowed_roles']);
+        $roles = array_map('sanitize_text_field', wp_unslash($attachment['mop_allowed_roles']));
     } elseif (isset($attachment['mop_allowed_roles_present'])) {
         $roles = [];
     } elseif (!empty($attachment['mop_allowed_roles_csv'])) {
-        $parts = array_filter(array_map('sanitize_text_field', explode(',', $attachment['mop_allowed_roles_csv'])));
+        $parts = array_filter(array_map('sanitize_text_field', explode(',', wp_unslash($attachment['mop_allowed_roles_csv']))));
         $roles = array_values(array_unique($parts));
     }
     // keep only valid roles actually registered on the site
@@ -616,7 +632,7 @@ add_action('template_redirect', function () {
     $orig = get_post_meta($attachment_id, MOP_META_ORIG, true);
     if (!$orig) $orig = wp_basename($file);
 
-    $requested_name = (string) get_query_var(MOP_NAME_PARAM);
+    $requested_name = sanitize_text_field(wp_unslash((string) get_query_var(MOP_NAME_PARAM)));
     $stream = mop_resolve_requested_protected_file($attachment_id, $file, $requested_name);
     if (is_wp_error($stream)) {
         mop_404();

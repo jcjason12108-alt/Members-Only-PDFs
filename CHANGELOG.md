@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-05-20
+### Improved
+- Confirmed WordPress 7.0 and PHP 7.4 compatibility metadata.
+- Hardened admin actions and attachment saving with capability checks, nonce validation, unslashing, and sanitized request handling.
+
 ## [1.8.1] - 2026-05-11
 ### Added
 - Added Plugin Update Checker for automatic updates from GitHub.
