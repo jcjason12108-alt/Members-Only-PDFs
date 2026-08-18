@@ -5,7 +5,7 @@ Tags: media, members, private files, pdf, access control
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.8.2
+Stable tag: 1.8.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -34,6 +34,10 @@ Yes. This plugin uses Plugin Update Checker against the `main` branch of the Git
 Yes. Jason Cox is the only listed contributor.
 
 == Changelog ==
+
+= 1.8.3 =
+* Updated the bundled Plugin Update Checker library from 5.6 to 5.7.
+* Added explicit attribute escaping for custom redirect settings.
 
 = 1.8.2 =
 * Confirmed WordPress 7.0 and PHP 7.4 compatibility metadata.

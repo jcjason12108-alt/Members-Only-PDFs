@@ -3,7 +3,7 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives so only logged-in users (with allowed roles) can view them. Per-file role checkboxes, pretty URLs with original filename, protected URL field, auto .htaccess for uploads/members-only, Repair Routes button, lock icon in Media Library, and configurable redirects (login + forbidden).
- * Version: 1.8.2
+ * Version: 1.8.3
  * Requires at least: 5.8
  * Tested up to: 7.0
  * Requires PHP: 7.4
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.8.2');
+define('MOP_VERSION',        '1.8.3');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ROLES',     '_mop_allowed_roles');    // array of role slugs per file
@@ -187,7 +187,7 @@ add_action('admin_init', function () {
     add_settings_field('redirect_url', 'Custom URL', function () {
         $o = get_option(MOP_OPTION);
         $url = esc_url($o['redirect_url'] ?? '');
-        echo '<input type="url" class="regular-text" name="' . esc_attr(MOP_OPTION) . '[redirect_url]" value="' . $url . '"/>';
+        echo '<input type="url" class="regular-text" name="' . esc_attr(MOP_OPTION) . '[redirect_url]" value="' . esc_attr($url) . '"/>';
         echo '<p class="description">Absolute URL; used only if “Send to Custom URL” is selected.</p>';
     }, 'mop', 'mop_section_login');
 
@@ -220,7 +220,7 @@ add_action('admin_init', function () {
     add_settings_field('forbidden_url', 'Forbidden Custom URL', function () {
         $o = get_option(MOP_OPTION);
         $url = esc_url($o['forbidden_url'] ?? '');
-        echo '<input type="url" class="regular-text" name="' . esc_attr(MOP_OPTION) . '[forbidden_url]" value="' . $url . '"/>';
+        echo '<input type="url" class="regular-text" name="' . esc_attr(MOP_OPTION) . '[forbidden_url]" value="' . esc_attr($url) . '"/>';
         echo '<p class="description">Absolute URL; used only if “Send to Custom URL” is selected above.</p>';
     }, 'mop', 'mop_section_forbidden');
 });
