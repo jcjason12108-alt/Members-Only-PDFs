@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.3] - 2026-08-17
+### Improved
+- Updated the bundled Plugin Update Checker library from 5.6 to 5.7.
+- Added explicit attribute escaping for custom redirect settings.
+
 ## [1.8.2] - 2026-05-20
 ### Improved
 - Confirmed WordPress 7.0 and PHP 7.4 compatibility metadata.
