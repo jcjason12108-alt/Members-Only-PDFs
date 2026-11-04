@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-11-04
+### Added
+- Added automatic protection for roster PDFs during WordPress REST media uploads, with Administrator, Executive Board, and Member access.
+- Added a role header for other protected PDF uploads and a protected media URL in successful upload responses.
+
 ## [1.8.3] - 2026-08-17
 ### Improved
 - Updated the bundled Plugin Update Checker library from 5.6 to 5.7.

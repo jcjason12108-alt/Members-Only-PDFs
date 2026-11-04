@@ -3,7 +3,7 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives so only logged-in users (with allowed roles) can view them. Per-file role checkboxes, pretty URLs with original filename, protected URL field, auto .htaccess for uploads/members-only, Repair Routes button, lock icon in Media Library, and configurable redirects (login + forbidden).
- * Version: 1.8.3
+ * Version: 1.9.0
  * Requires at least: 5.8
  * Tested up to: 7.0
  * Requires PHP: 7.4
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.8.3');
+define('MOP_VERSION',        '1.9.0');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ROLES',     '_mop_allowed_roles');    // array of role slugs per file
@@ -507,6 +507,88 @@ add_filter('attachment_fields_to_save', function ($post, $attachment) {
 
     return $post;
 }, 10, 2);
+
+/** Require valid roles before accepting an automation's protected PDF upload. */
+add_filter('rest_request_before_callbacks', function ($response, $handler, WP_REST_Request $request) {
+    if (!mop_is_protected_upload_request($request) || is_wp_error($response)) return $response;
+
+    $roles = mop_protected_upload_roles($request);
+    return is_wp_error($roles) ? $roles : $response;
+}, 10, 3);
+
+/** Secure the PDF before a successful Media Library upload response is sent. */
+add_filter('rest_request_after_callbacks', function ($response, $handler, WP_REST_Request $request) {
+    if ($request->get_route() !== '/wp/v2/media' || $request->get_method() !== 'POST' || is_wp_error($response)) return $response;
+    if (!($response instanceof WP_REST_Response) || $response->get_status() !== 201) return $response;
+
+    $data = $response->get_data();
+    $id = isset($data['id']) ? (int) $data['id'] : 0;
+    if (!mop_is_protected_upload_request($request) && !mop_is_roster_pdf_upload($id)) return $response;
+    if (!$id || get_post_type($id) !== 'attachment') {
+        return new WP_Error('mop_missing_upload', 'The protected upload did not create a media attachment.', ['status' => 500]);
+    }
+
+    if (!mop_is_pdf($id)) {
+        wp_delete_attachment($id, true);
+        return new WP_Error('mop_pdf_required', 'This protected upload must be a PDF.', ['status' => 400]);
+    }
+
+    $roles = mop_protected_upload_roles($request, $id);
+    if (is_wp_error($roles)) {
+        wp_delete_attachment($id, true);
+        return $roles;
+    }
+
+    $result = mop_move_file_protection_state($id, true);
+    $file = get_attached_file($id, true);
+    if (is_wp_error($result) || !$file || !mop_path_is_in_dir($file, MOP_DIR)) {
+        wp_delete_attachment($id, true);
+        return new WP_Error('mop_protection_failed', 'The PDF could not be moved into protected storage.', ['status' => 500]);
+    }
+
+    update_post_meta($id, MOP_META_ROLES, $roles);
+    update_post_meta($id, MOP_META_PROTECT, '1');
+    if (get_post_meta($id, MOP_META_PROTECT, true) !== '1' || mop_get_allowed_roles($id) !== $roles) {
+        wp_delete_attachment($id, true);
+        return new WP_Error('mop_protection_failed', 'The PDF access rules could not be saved.', ['status' => 500]);
+    }
+
+    $data['source_url'] = mop_build_protected_url($id);
+    $data['mop_protected'] = true;
+    $data['mop_allowed_roles'] = $roles;
+    $response->set_data($data);
+    return $response;
+}, 10, 3);
+
+function mop_is_protected_upload_request(WP_REST_Request $request): bool {
+    return $request->get_route() === '/wp/v2/media'
+        && $request->get_method() === 'POST'
+        && trim((string) $request->get_header('x-mop-protect-roles')) !== '';
+}
+
+function mop_is_roster_pdf_upload(int $id): bool {
+    if (!$id || !mop_is_pdf($id)) return false;
+    $file = get_attached_file($id, true);
+    return $file && (bool) preg_match('/^seniority-roster(?:-\d{4}-\d{2}-\d{2})?(?:-\d+)?\.pdf$/i', wp_basename($file));
+}
+
+function mop_protected_upload_roles(WP_REST_Request $request, int $id = 0) {
+    $raw = (string) $request->get_header('x-mop-protect-roles');
+    $roles = $raw === '' && mop_is_roster_pdf_upload($id)
+        ? ['administrator', 'executive_board', 'member']
+        : array_map('trim', explode(',', $raw));
+    $roles = array_values(array_unique($roles));
+    if (!$roles || in_array('', $roles, true)) {
+        return new WP_Error('mop_roles_required', 'Provide allowed WordPress role slugs.', ['status' => 400]);
+    }
+    $registered = array_keys(mop_get_all_roles());
+    foreach ($roles as $role) {
+        if ($role !== sanitize_key($role) || !in_array($role, $registered, true)) {
+            return new WP_Error('mop_invalid_roles', 'Every requested role must exist on this site.', ['status' => 400]);
+        }
+    }
+    return $roles;
+}
 
 /** -----------------------------------------------------------------------
  * URL rewriting for protected files → /members-file/{id}/{orig-filename}

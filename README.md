@@ -27,6 +27,7 @@ Audio and video are not included yet because they need byte-range streaming supp
 
 - Per-file protection from the WordPress Media Library
 - Per-file role access with checkbox selection
+- Automatic protection of seniority roster PDFs during WordPress REST media uploads
 - Support for custom WordPress roles
 - Protected URLs in this format:
 
@@ -110,6 +111,19 @@ In **Media -> Library**, use the media type dropdown to filter by:
 - Locked Archives
 
 Protected files also show a lock icon in the Media Library grid.
+
+### Protect a Roster PDF from an Automation
+
+WordPress REST Media Library uploads named `seniority-roster.pdf` or
+`seniority-roster-YYYY-MM-DD.pdf` are protected before WordPress returns a
+successful upload response. The allowed roles are Administrator, Executive
+Board, and Member. The upload response includes `mop_protected: true`,
+`mop_allowed_roles`, and a protected `source_url`.
+
+Automations can also send `X-MOP-Protect-Roles: administrator,executive_board,member`
+with a PDF upload. Every role slug must exist on the site. If protection fails,
+the plugin removes the newly uploaded attachment and returns an error. The
+automation should verify `mop_protected` and use the returned `source_url`.
 
 ### Unlock a File
 
