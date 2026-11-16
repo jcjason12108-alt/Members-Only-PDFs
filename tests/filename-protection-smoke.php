@@ -53,6 +53,7 @@ $assert($result===true && is_file($locked) && mop_is_opaque_protected_name($lock
 $assert(count($map)===1 && is_file(MOP_DIR.'/'.array_key_first($map)) && !file_exists($preview),'preview gets random storage name');
 $assert(get_post_meta($id,MOP_META_ORIG_PATH,true)==='2026/11/seniority-roster-2026-11-04.pdf','original relative path saved');
 $assert(mop_build_protected_url($id)==='https://example.test/members-file/12419/','main link contains no name');
+$assert(mop_locked_download_name($locked,$id)==='protected-file-12419.pdf','locked download suggests generic name');
 $assert(strpos(mop_build_protected_url($id,basename($preview)),basename($preview))===false,'preview link contains no name');
 $GLOBALS['post_meta'][$id][MOP_META_PROTECT]='1';
 $filter_start = strpos($source, "add_filter('image_downsize'");

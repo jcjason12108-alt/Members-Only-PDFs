@@ -74,6 +74,7 @@ The original filename and upload path are saved privately so unlocking can resto
 4. Whether the requested file exists inside the protected folder.
 
 If access is allowed, WordPress streams the file. If access is denied, the plugin redirects or returns a `403` depending on the configured settings.
+While the file is locked, browsers receive a generic suggested filename such as `protected-file-123.pdf`. Unlocking restores the original filename and upload location.
 
 Files locked before version 1.10.0 keep their old storage names until an administrator clicks **Hide filename** beside each file under **Settings -> Members-Only Media**. Existing protected links with filenames continue to work and redirect authorized visitors to the new link.
 

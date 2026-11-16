@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-11-15
+### Improved
+- Suggest a generic filename in protected file responses so authorized browser tabs and downloads do not display the original filename while locked.
+
 ## [1.10.0] - 2026-11-15
 ### Added
 - Use filename-free protected links and random names for protected files and previews.
