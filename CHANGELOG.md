@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-11-15
+### Added
+- Use filename-free protected links and random names for protected files and previews.
+- Save the original upload path so unlocking restores the original name and folder without overwriting another file.
+- Add a Hide filename action to migrate files protected by earlier versions.
+
+### Improved
+- Keep protected attachment records out of the public REST media API.
+- Redirect old filename-bearing protected links to the new link after authorization.
+
+## [1.9.1] - 2026-11-15
+### Fixed
+- Ensure an existing weak `.htaccess` file gains a direct-access deny rule and show an administrator error when the guard cannot be written.
+
 ## [1.9.0] - 2026-11-04
 ### Added
 - Added automatic protection for roster PDFs during WordPress REST media uploads, with Administrator, Executive Board, and Member access.

@@ -32,7 +32,7 @@ Audio and video are not included yet because they need byte-range streaming supp
 - Protected URLs in this format:
 
 ```text
-https://example.com/members-file/{id}/{Original-Filename}
+https://example.com/members-file/{id}/
 ```
 
 - Protected URL copy field in the Media edit screen
@@ -45,6 +45,8 @@ https://example.com/members-file/{id}/{Original-Filename}
   - Locked Archives
 - Secured Media table in the plugin settings
 - One-click unlock action that moves protected files back into regular uploads
+- Random storage names while protected, with the original upload path restored on unlock
+- A Hide filename action for files protected by older plugin versions
 - Generated image sizes are protected along with the original image
 - PDF preview images are protected along with the original PDF
 - Automatic `.htaccess` generation for Apache/LiteSpeed
@@ -56,7 +58,7 @@ https://example.com/members-file/{id}/{Original-Filename}
 
 ## How It Works
 
-When a file is protected, the plugin moves the original file into:
+When a file is protected, the plugin gives the file and its generated previews random names and moves them into:
 
 ```text
 wp-content/uploads/members-only/
@@ -64,7 +66,7 @@ wp-content/uploads/members-only/
 
 For images, generated sizes such as thumbnail, medium, and large files are moved too. For PDFs, generated preview images are also moved when WordPress has created them.
 
-The original public Media Library URL is replaced with a protected route. When someone visits that protected route, WordPress checks:
+The original filename and upload path are saved privately so unlocking can restore them. If another file occupies that path, unlock stops instead of overwriting it. The original public Media Library URL is replaced with a filename-free protected route. When someone visits that protected route, WordPress checks:
 
 1. Whether the visitor is logged in.
 2. Whether the file is protected.
@@ -72,6 +74,8 @@ The original public Media Library URL is replaced with a protected route. When s
 4. Whether the requested file exists inside the protected folder.
 
 If access is allowed, WordPress streams the file. If access is denied, the plugin redirects or returns a `403` depending on the configured settings.
+
+Files locked before version 1.10.0 keep their old storage names until an administrator clicks **Hide filename** beside each file under **Settings -> Members-Only Media**. Existing protected links with filenames continue to work and redirect authorized visitors to the new link.
 
 ## Installation
 
