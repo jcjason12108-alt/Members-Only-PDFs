@@ -3,9 +3,9 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives for allowed WordPress roles. Filename-free links, private storage names, and original-path restoration on unlock.
- * Version: 1.10.1
+ * Version: 1.10.2
  * Requires at least: 5.8
- * Tested up to: 7.0
+ * Tested up to: 7.1
  * Requires PHP: 7.4
  * Author: Jason Cox
  * Author URI: https://github.com/jcjason12108-alt
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.10.1');
+define('MOP_VERSION',        '1.10.2');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ORIG_PATH', '_mop_orig_relative_path'); // original location relative to uploads
