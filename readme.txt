@@ -3,9 +3,9 @@ Contributors: Jason Cox
 Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
 Tags: media, members, private files, pdf, access control
 Requires at least: 5.8
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.1
+Stable tag: 1.10.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -34,6 +34,9 @@ Yes. This plugin uses Plugin Update Checker against the `main` branch of the Git
 Yes. Jason Cox is the only listed contributor.
 
 == Changelog ==
+
+= 1.10.2 =
+* Confirmed WordPress 7.1 compatibility on a live WordPress 7.1.4 site.
 
 = 1.10.1 =
 * Suggest a generic filename to browsers while a file is locked.
