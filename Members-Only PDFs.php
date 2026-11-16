@@ -3,7 +3,7 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives so only logged-in users (with allowed roles) can view them. Per-file role checkboxes, pretty URLs with original filename, protected URL field, auto .htaccess for uploads/members-only, Repair Routes button, lock icon in Media Library, and configurable redirects (login + forbidden).
- * Version: 1.9.0
+ * Version: 1.9.1
  * Requires at least: 5.8
  * Tested up to: 7.0
  * Requires PHP: 7.4
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.9.0');
+define('MOP_VERSION',        '1.9.1');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ROLES',     '_mop_allowed_roles');    // array of role slugs per file
@@ -122,6 +122,10 @@ add_action('admin_notices', function () {
 
     if (isset($_GET['mop_repaired']) && sanitize_text_field(wp_unslash($_GET['mop_repaired'])) === '1') {
         echo '<div class="notice notice-success is-dismissible"><p>Members-Only Media: Routes were flushed.</p></div>';
+    }
+
+    if (!mop_ensure_htaccess()) {
+        echo '<div class="notice notice-error"><p><strong>Members-Only Media:</strong> The protected uploads folder could not be secured. Check its .htaccess file and folder permissions before protecting more files.</p></div>';
     }
 
     $srv = $_SERVER['SERVER_SOFTWARE'] ?? '';
@@ -1092,8 +1096,17 @@ function mop_get_attachment_kind(int $post_id): string {
 function mop_ensure_htaccess(): bool {
     if (!file_exists(MOP_DIR)) return false;
     $ht = MOP_DIR . '/.htaccess';
-    if (!file_exists($ht)) {
-        $rules = <<<HTACC
+    if (is_link($ht)) return false;
+
+    // Put this first so an older rewrite rule cannot stop processing before the deny.
+    $guard = "# BEGIN Members-Only Media direct access guard\nRewriteEngine On\nRewriteRule .* - [L,F]\n# END Members-Only Media direct access guard";
+    $existing = '';
+    if (file_exists($ht)) {
+        $existing = @file_get_contents($ht);
+        if ($existing === false) return false;
+        if (strpos($existing, $guard) === 0) return true;
+    } else {
+        $existing = <<<HTACC
 # Members-Only Media
 Options -Indexes
 
@@ -1107,10 +1120,20 @@ Options -Indexes
   Deny from all
 </IfModule>
 HTACC;
-        return @file_put_contents($ht, $rules) !== false;
     }
 
-    return true;
+    $rules = $guard . "\n\n" . ltrim($existing, "\r\n");
+    $temporary = @tempnam(MOP_DIR, '.mop-guard-');
+    if ($temporary === false) return false;
+    $permissions = file_exists($ht) ? (@fileperms($ht) & 0777) : 0644;
+    if (@file_put_contents($temporary, $rules) === false ||
+        !@chmod($temporary, $permissions ?: 0644) ||
+        !@rename($temporary, $ht)) {
+        @unlink($temporary);
+        return false;
+    }
+    $written = @file_get_contents($ht);
+    return $written !== false && strpos($written, $guard) === 0;
 }
 
 function mop_move_file_protection_state(int $attachment_id, bool $protect) {
