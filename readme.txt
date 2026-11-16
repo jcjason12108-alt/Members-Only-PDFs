@@ -5,7 +5,7 @@ Tags: media, members, private files, pdf, access control
 Requires at least: 5.8
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.8.3
+Stable tag: 1.10.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -15,7 +15,7 @@ Protect selected Media Library files so only logged-in users with allowed roles 
 
 Members-Only Media protects selected PDFs, images, documents, and archives from public access. Protected files are moved into a guarded uploads folder and served through WordPress after login and role checks.
 
-Features include per-file role access, protected URLs with original filenames, locked media filters, generated image/PDF preview protection, configurable login and forbidden redirects, and a repair button for rewrite routes.
+Features include per-file role access, filename-free protected URLs, private storage names, locked media filters, generated image/PDF preview protection, configurable login and forbidden redirects, and a repair button for rewrite routes.
 
 == Installation ==
 
@@ -34,6 +34,14 @@ Yes. This plugin uses Plugin Update Checker against the `main` branch of the Git
 Yes. Jason Cox is the only listed contributor.
 
 == Changelog ==
+
+= 1.10.0 =
+* Protected links and storage names no longer include original filenames.
+* Added a Hide filename action for older protected files and exact original-path restoration on unlock.
+* Hidden protected media details from the public WordPress REST media API.
+
+= 1.9.1 =
+* Strengthened the protected directory .htaccess guard and administrator error reporting.
 
 = 1.8.3 =
 * Updated the bundled Plugin Update Checker library from 5.6 to 5.7.

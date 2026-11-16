@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
- * Description: Protect selected PDFs, images, documents, and archives so only logged-in users (with allowed roles) can view them. Per-file role checkboxes, pretty URLs with original filename, protected URL field, auto .htaccess for uploads/members-only, Repair Routes button, lock icon in Media Library, and configurable redirects (login + forbidden).
- * Version: 1.9.1
+ * Description: Protect selected PDFs, images, documents, and archives for allowed WordPress roles. Filename-free links, private storage names, and original-path restoration on unlock.
+ * Version: 1.10.0
  * Requires at least: 5.8
  * Tested up to: 7.0
  * Requires PHP: 7.4
@@ -20,9 +20,10 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.9.1');
+define('MOP_VERSION',        '1.10.0');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
+define('MOP_META_ORIG_PATH', '_mop_orig_relative_path'); // original location relative to uploads
 define('MOP_META_ROLES',     '_mop_allowed_roles');    // array of role slugs per file
 define('MOP_META_SIDECARS',  '_mop_protected_sidecars'); // protected preview basename => original basename
 define('MOP_DIR',            wp_normalize_path(WP_CONTENT_DIR . '/uploads/members-only'));
@@ -258,6 +259,22 @@ function mop_render_settings_page() {
         wp_safe_redirect(add_query_arg($args, menu_page_url('mop', false)));
         exit;
     }
+    if (isset($_POST['mop_obscure_attachment'])) {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Sorry, you are not allowed to manage Members-Only Media settings.', 'members-only-pdfs'));
+        }
+        $attachment_id = isset($_POST['mop_attachment_id']) ? absint(wp_unslash($_POST['mop_attachment_id'])) : 0;
+        check_admin_referer('mop_obscure_attachment_' . $attachment_id);
+        $file = get_attached_file($attachment_id, true);
+        $result = $file && get_post_meta($attachment_id, MOP_META_PROTECT, true) === '1'
+            ? mop_protect_attachment_files($attachment_id, wp_normalize_path($file))
+            : new WP_Error('mop_not_protected', 'The selected attachment is not protected.');
+        $args = is_wp_error($result)
+            ? ['mop_obscure_error' => $result->get_error_message()]
+            : ['mop_obscured' => $attachment_id];
+        wp_safe_redirect(add_query_arg($args, menu_page_url('mop', false)));
+        exit;
+    }
     ?>
     <div class="wrap">
         <h1>Members-Only Media</h1>
@@ -291,6 +308,14 @@ function mop_render_settings_notices(): void {
         $message = sanitize_text_field(wp_unslash($_GET['mop_unlock_error']));
         echo '<div class="notice notice-error is-dismissible"><p>Members-Only Media: ' . esc_html($message) . '</p></div>';
     }
+
+    if (isset($_GET['mop_obscured'])) {
+        echo '<div class="notice notice-success is-dismissible"><p>Members-Only Media: The protected file and its previews now use private filenames.</p></div>';
+    }
+    if (isset($_GET['mop_obscure_error'])) {
+        $message = sanitize_text_field(wp_unslash($_GET['mop_obscure_error']));
+        echo '<div class="notice notice-error is-dismissible"><p>Members-Only Media: ' . esc_html($message) . '</p></div>';
+    }
 }
 
 function mop_render_secured_files_table(): void {
@@ -310,7 +335,7 @@ function mop_render_secured_files_table(): void {
     ]);
 
     echo '<h2>Secured Media</h2>';
-    echo '<p>Protected media files are listed here so they can be audited or unlocked without opening each Media Library item.</p>';
+    echo '<p>Protected media files are listed here so they can be audited, given private storage names, or unlocked without opening each Media Library item.</p>';
 
     if (empty($secured)) {
         echo '<p>No supported media files are currently secured.</p>';
@@ -343,6 +368,21 @@ function mop_render_secured_files_table(): void {
         echo '<td>' . esc_html($role_text) . '</td>';
         echo '<td><input type="text" class="regular-text code" readonly value="' . esc_attr(mop_build_protected_url($id)) . '" onclick="this.select();" /></td>';
         echo '<td>';
+        $file = get_attached_file($id, true);
+        $sidecars = get_post_meta($id, MOP_META_SIDECARS, true);
+        $needs_obscuring = !$file || !mop_is_opaque_protected_name($file);
+        if (is_array($sidecars)) {
+            foreach (array_keys($sidecars) as $protected_name) {
+                if (!mop_is_opaque_protected_name((string) $protected_name)) $needs_obscuring = true;
+            }
+        }
+        if ($needs_obscuring) {
+            echo '<form method="post">';
+            wp_nonce_field('mop_obscure_attachment_' . $id);
+            echo '<input type="hidden" name="mop_attachment_id" value="' . esc_attr((string) $id) . '">';
+            submit_button('Hide filename', 'secondary small', 'mop_obscure_attachment', false);
+            echo '</form>';
+        }
         echo '<form method="post">';
         wp_nonce_field('mop_unlock_attachment_' . $id);
         echo '<input type="hidden" name="mop_attachment_id" value="' . esc_attr((string) $id) . '">';
@@ -399,7 +439,7 @@ add_filter('attachment_fields_to_edit', function ($form_fields, $post) {
             'label' => __('Protected URL', 'mop'),
             'input' => 'html',
             'html'  => '<input type="text" class="regular-text code" readonly value="' . esc_attr($protected_url) . '" onclick="this.select();" />' .
-                       '<p class="description">Share this URL with members. It includes the original filename.</p>',
+                       '<p class="description">Share this URL with members. It does not include the original filename.</p>',
         ];
     }
 
@@ -479,12 +519,6 @@ add_filter('attachment_fields_to_save', function ($post, $attachment) {
     $curr           = get_post_meta($id, MOP_META_PROTECT, true) === '1' ? '1' : '0';
 
     if ($want_protected !== $curr) {
-        // Capture original filename on first protect
-        if ($want_protected === '1' && !get_post_meta($id, MOP_META_ORIG, true)) {
-            $path = get_attached_file($id, true);
-            if ($path) update_post_meta($id, MOP_META_ORIG, wp_basename($path));
-        }
-
         $result = mop_move_file_protection_state($id, $want_protected === '1');
         if (is_wp_error($result)) {
             $post['errors']['mop_members_only'] = $result->get_error_message();
@@ -514,11 +548,33 @@ add_filter('attachment_fields_to_save', function ($post, $attachment) {
 
 /** Require valid roles before accepting an automation's protected PDF upload. */
 add_filter('rest_request_before_callbacks', function ($response, $handler, WP_REST_Request $request) {
+    if (in_array($request->get_method(), ['GET', 'HEAD'], true) &&
+        preg_match('~^/wp/v2/media/([0-9]+)/?$~', $request->get_route(), $matches) &&
+        get_post_meta((int) $matches[1], MOP_META_PROTECT, true) === '1' &&
+        !current_user_can('edit_post', (int) $matches[1])) {
+        return new WP_Error('rest_post_invalid_id', 'Invalid post ID.', ['status' => 404]);
+    }
     if (!mop_is_protected_upload_request($request) || is_wp_error($response)) return $response;
 
     $roles = mop_protected_upload_roles($request);
     return is_wp_error($roles) ? $roles : $response;
 }, 10, 3);
+
+/** Keep protected attachment names out of the public media collection. */
+add_filter('rest_attachment_query', function ($args) {
+    if (current_user_can('upload_files')) return $args;
+    $exclude_protected = [
+        'relation' => 'OR',
+        ['key' => MOP_META_PROTECT, 'compare' => 'NOT EXISTS'],
+        ['key' => MOP_META_PROTECT, 'value' => '1', 'compare' => '!='],
+    ];
+    if (!empty($args['meta_query'])) {
+        $args['meta_query'] = ['relation' => 'AND', $args['meta_query'], $exclude_protected];
+    } else {
+        $args['meta_query'] = $exclude_protected;
+    }
+    return $args;
+}, 10, 1);
 
 /** Secure the PDF before a successful Media Library upload response is sent. */
 add_filter('rest_request_after_callbacks', function ($response, $handler, WP_REST_Request $request) {
@@ -595,7 +651,7 @@ function mop_protected_upload_roles(WP_REST_Request $request, int $id = 0) {
 }
 
 /** -----------------------------------------------------------------------
- * URL rewriting for protected files → /members-file/{id}/{orig-filename}
+ * URL rewriting for protected files → /members-file/{id}/
  * --------------------------------------------------------------------- */
 add_filter('wp_get_attachment_url', function ($url, $post_id) {
     if (!mop_is_supported_attachment($post_id)) return $url;
@@ -604,23 +660,38 @@ add_filter('wp_get_attachment_url', function ($url, $post_id) {
 }, 10, 2);
 
 function mop_build_protected_url(int $post_id, string $filename = ''): string {
-    $fname = $filename ?: get_post_meta($post_id, MOP_META_ORIG, true);
-    if (!$fname) {
-        $p = get_attached_file($post_id, true);
-        $fname = $p ? wp_basename($p) : ('file-' . $post_id);
+    $base = home_url('/members-file/' . $post_id . '/');
+    if ($filename === '') return $base;
+
+    $requested = wp_basename($filename);
+    $original = wp_basename((string) get_post_meta($post_id, MOP_META_ORIG, true));
+    $file = get_attached_file($post_id, true);
+    if ($requested === $original || ($file && $requested === wp_basename($file))) return $base;
+
+    $sidecars = get_post_meta($post_id, MOP_META_SIDECARS, true);
+    if (is_array($sidecars)) {
+        foreach ($sidecars as $protected_name => $original_name) {
+            if ($requested === wp_basename((string) $original_name) || $requested === wp_basename((string) $protected_name)) {
+                return $base . rawurlencode(wp_basename((string) $protected_name));
+            }
+        }
     }
-    return home_url('/members-file/' . $post_id . '/' . rawurlencode($fname));
+
+    return $base;
 }
 
 add_filter('image_downsize', function ($out, $id, $size) {
-    if (!mop_is_image($id) || get_post_meta($id, MOP_META_PROTECT, true) !== '1') return $out;
+    if ((!mop_is_image($id) && !mop_is_pdf($id)) || get_post_meta($id, MOP_META_PROTECT, true) !== '1') return $out;
 
     $metadata = wp_get_attachment_metadata($id);
     if (!is_array($metadata)) return $out;
 
-    $width = isset($metadata['width']) ? (int) $metadata['width'] : 0;
-    $height = isset($metadata['height']) ? (int) $metadata['height'] : 0;
-    $filename = get_post_meta($id, MOP_META_ORIG, true);
+    $is_pdf = mop_is_pdf($id);
+    $preview = $is_pdf ? ($metadata['sizes']['full'] ?? null) : null;
+    if ($is_pdf && (!is_array($preview) || empty($preview['file']))) return $out;
+    $width = $is_pdf ? (int) ($preview['width'] ?? 0) : (int) ($metadata['width'] ?? 0);
+    $height = $is_pdf ? (int) ($preview['height'] ?? 0) : (int) ($metadata['height'] ?? 0);
+    $filename = $is_pdf ? $preview['file'] : get_post_meta($id, MOP_META_ORIG, true);
     $is_intermediate = false;
 
     if ($size !== 'full') {
@@ -638,7 +709,7 @@ add_filter('image_downsize', function ($out, $id, $size) {
 
 add_filter('wp_calculate_image_srcset', function ($sources, $size_array, $image_src, $image_meta, $attachment_id) {
     $attachment_id = (int) $attachment_id;
-    if (!mop_is_image($attachment_id) || get_post_meta($attachment_id, MOP_META_PROTECT, true) !== '1') return $sources;
+    if ((!mop_is_image($attachment_id) && !mop_is_pdf($attachment_id)) || get_post_meta($attachment_id, MOP_META_PROTECT, true) !== '1') return $sources;
 
     foreach ($sources as $width => $source) {
         if (!empty($source['url'])) {
@@ -722,6 +793,15 @@ add_action('template_redirect', function () {
     $stream = mop_resolve_requested_protected_file($attachment_id, $file, $requested_name);
     if (is_wp_error($stream)) {
         mop_404();
+    }
+
+    // Old links keep working, but browsers switch to the filename-free URL.
+    if ($requested_name !== '') {
+        $canonical_name = $stream['path'] === $file ? '' : wp_basename($stream['path']);
+        if ($requested_name !== $canonical_name) {
+            wp_safe_redirect(mop_build_protected_url($attachment_id, $canonical_name), 302);
+            exit;
+        }
     }
 
     mop_stream_file($stream['path'], $stream['name'], $attachment_id);
@@ -1150,6 +1230,65 @@ function mop_move_file_protection_state(int $attachment_id, bool $protect) {
         : mop_unprotect_attachment_files($attachment_id, wp_normalize_path($file));
 }
 
+function mop_upload_relative_path(string $path): string {
+    $uploads = wp_get_upload_dir();
+    $base = trailingslashit(wp_normalize_path((string) ($uploads['basedir'] ?? '')));
+    $path = wp_normalize_path($path);
+    return $base !== '/' && strpos($path, $base) === 0 ? substr($path, strlen($base)) : '';
+}
+
+function mop_valid_original_path(string $relative, string $filename): bool {
+    $relative = str_replace('\\', '/', $relative);
+    return $relative !== ''
+        && $relative[0] !== '/'
+        && strpos($relative, 'members-only/') !== 0
+        && !preg_match('~(^|/)\.\.?(/|$)~', $relative)
+        && wp_basename($relative) === $filename;
+}
+
+function mop_original_upload_path(int $attachment_id, string $file, string $filename): string {
+    $candidates = [];
+    if (!mop_path_is_in_dir($file, MOP_DIR)) {
+        $candidates[] = mop_upload_relative_path($file);
+    }
+    $candidates[] = get_post_meta($attachment_id, MOP_META_ORIG_PATH, true);
+    $metadata = wp_get_attachment_metadata($attachment_id);
+    if (is_array($metadata) && !empty($metadata['file'])) {
+        $candidates[] = $metadata['file'];
+    }
+    $uploads = wp_get_upload_dir();
+    $guid_path = (string) parse_url((string) get_the_guid($attachment_id), PHP_URL_PATH);
+    $uploads_url_path = (string) parse_url((string) ($uploads['baseurl'] ?? ''), PHP_URL_PATH);
+    $uploads_url_path = trailingslashit($uploads_url_path);
+    if ($uploads_url_path !== '/' && strpos($guid_path, $uploads_url_path) === 0) {
+        $candidates[] = rawurldecode(substr($guid_path, strlen($uploads_url_path)));
+    }
+    foreach ($candidates as $candidate) {
+        $candidate = (string) $candidate;
+        if (mop_valid_original_path($candidate, $filename)) return $candidate;
+    }
+
+    // Legacy protected files may not have their original location recorded.
+    return date('Y/m/', (int) (filemtime($file) ?: time())) . $filename;
+}
+
+function mop_random_protected_path(string $source) {
+    $extension = pathinfo($source, PATHINFO_EXTENSION);
+    try {
+        do {
+            $name = bin2hex(random_bytes(16)) . ($extension !== '' ? '.' . $extension : '');
+            $target = wp_normalize_path(trailingslashit(MOP_DIR) . $name);
+        } while (file_exists($target));
+    } catch (Throwable $error) {
+        return new WP_Error('mop_random_name_failed', 'A private filename could not be generated.');
+    }
+    return $target;
+}
+
+function mop_is_opaque_protected_name(string $path): bool {
+    return (bool) preg_match('/^[a-f0-9]{32}(?:\.[^.]+)?$/', wp_basename($path));
+}
+
 function mop_protect_attachment_files(int $attachment_id, string $file) {
     if (!file_exists(MOP_DIR) && !wp_mkdir_p(MOP_DIR)) {
         return new WP_Error('mop_protected_dir_failed', 'The protected uploads folder could not be created.');
@@ -1159,13 +1298,30 @@ function mop_protect_attachment_files(int $attachment_id, string $file) {
         return new WP_Error('mop_htaccess_failed', 'The protected folder was created, but its .htaccess protection file could not be written.');
     }
 
+    $was_protected = mop_path_is_in_dir($file, MOP_DIR);
+    $original_name = $was_protected
+        ? (string) get_post_meta($attachment_id, MOP_META_ORIG, true)
+        : wp_basename($file);
+    if ($original_name === '') {
+        $original_name = wp_basename($file);
+    }
+    $original_path = mop_original_upload_path($attachment_id, $file, $original_name);
+
     $sidecars = mop_get_attachment_sidecar_files($attachment_id, $file);
+    $old_sidecar_map = get_post_meta($attachment_id, MOP_META_SIDECARS, true);
+    if (!is_array($old_sidecar_map)) $old_sidecar_map = [];
+    foreach ($old_sidecar_map as $protected_name => $original_sidecar_name) {
+        $path = wp_normalize_path(trailingslashit(MOP_DIR) . wp_basename((string) $protected_name));
+        if (file_exists($path)) $sidecars[] = $path;
+    }
+    $sidecars = array_values(array_unique($sidecars));
     $moved = [];
     $sidecar_map = [];
     $protected_file = $file;
 
-    if (!mop_path_is_in_dir($file, MOP_DIR)) {
-        $protected_file = mop_unique_path(wp_normalize_path(trailingslashit(MOP_DIR) . wp_basename($file)));
+    if (!$was_protected || !mop_is_opaque_protected_name($file)) {
+        $protected_file = mop_random_protected_path($file);
+        if (is_wp_error($protected_file)) return $protected_file;
         $result = mop_rename_with_rollback($file, $protected_file, $moved);
         if (is_wp_error($result)) {
             return $result;
@@ -1173,28 +1329,48 @@ function mop_protect_attachment_files(int $attachment_id, string $file) {
     }
 
     foreach ($sidecars as $sidecar) {
-        if (mop_path_is_in_dir($sidecar, MOP_DIR)) {
-            $sidecar_map[wp_basename($sidecar)] = wp_basename($sidecar);
-            continue;
+        $sidecar_name = wp_basename($sidecar);
+        $original_sidecar_name = isset($old_sidecar_map[$sidecar_name])
+            ? wp_basename((string) $old_sidecar_map[$sidecar_name])
+            : $sidecar_name;
+        $target = $sidecar;
+        if (!mop_path_is_in_dir($sidecar, MOP_DIR) || !mop_is_opaque_protected_name($sidecar)) {
+            $target = mop_random_protected_path($sidecar);
+            if (is_wp_error($target)) {
+                mop_rollback_moves($moved);
+                return $target;
+            }
+            $result = mop_rename_with_rollback($sidecar, $target, $moved);
+            if (is_wp_error($result)) {
+                mop_rollback_moves($moved);
+                return new WP_Error('mop_preview_move_failed', 'The file could not be secured because a generated preview or image size could not be moved.');
+            }
         }
-
-        $target = mop_unique_path(wp_normalize_path(trailingslashit(MOP_DIR) . wp_basename($sidecar)));
-        $result = mop_rename_with_rollback($sidecar, $target, $moved);
-        if (is_wp_error($result)) {
-            mop_rollback_moves($moved);
-            return new WP_Error('mop_preview_move_failed', 'The file could not be secured because a generated preview or image size could not be moved.');
-        }
-
-        $sidecar_map[wp_basename($target)] = wp_basename($sidecar);
+        $sidecar_map[wp_basename($target)] = $original_sidecar_name;
     }
 
     update_attached_file($attachment_id, $protected_file);
-
-    if (!get_post_meta($attachment_id, MOP_META_ORIG, true)) {
-        update_post_meta($attachment_id, MOP_META_ORIG, wp_basename($file));
+    if (wp_normalize_path((string) get_attached_file($attachment_id, true)) !== $protected_file) {
+        mop_rollback_moves($moved);
+        update_attached_file($attachment_id, $file);
+        return new WP_Error('mop_attachment_path_failed', 'The protected file path could not be saved.');
     }
 
+    $previous_name = get_post_meta($attachment_id, MOP_META_ORIG, true);
+    $previous_path = get_post_meta($attachment_id, MOP_META_ORIG_PATH, true);
+    update_post_meta($attachment_id, MOP_META_ORIG, $original_name);
+    update_post_meta($attachment_id, MOP_META_ORIG_PATH, $original_path);
     update_post_meta($attachment_id, MOP_META_SIDECARS, $sidecar_map);
+    if (get_post_meta($attachment_id, MOP_META_ORIG, true) !== $original_name ||
+        get_post_meta($attachment_id, MOP_META_ORIG_PATH, true) !== $original_path ||
+        get_post_meta($attachment_id, MOP_META_SIDECARS, true) !== $sidecar_map) {
+        mop_rollback_moves($moved);
+        update_attached_file($attachment_id, $file);
+        update_post_meta($attachment_id, MOP_META_ORIG, $previous_name);
+        update_post_meta($attachment_id, MOP_META_ORIG_PATH, $previous_path);
+        update_post_meta($attachment_id, MOP_META_SIDECARS, $old_sidecar_map);
+        return new WP_Error('mop_protection_metadata_failed', 'The private filename details could not be saved.');
+    }
     return true;
 }
 
@@ -1206,22 +1382,16 @@ function mop_unprotect_attachment_files(int $attachment_id, string $file) {
 
     $uploads = wp_get_upload_dir();
     $uploads_base = wp_normalize_path($uploads['basedir']);
-    $subdir = date('/Y/m/', (int) (filemtime($file) ?: time()));
-    $target_dir = wp_normalize_path($uploads_base . $subdir);
+    $original_name = wp_basename((string) get_post_meta($attachment_id, MOP_META_ORIG, true));
+    if ($original_name === '') $original_name = wp_basename($file);
+    $relative_path = mop_original_upload_path($attachment_id, $file, $original_name);
+    $target_path = wp_normalize_path(trailingslashit($uploads_base) . $relative_path);
+    $target_dir = dirname($target_path);
     if (!file_exists($target_dir) && !wp_mkdir_p($target_dir)) {
         return new WP_Error('mop_upload_dir_failed', 'The regular uploads folder could not be created.');
     }
-
-    $original_name = get_post_meta($attachment_id, MOP_META_ORIG, true);
-    if (!$original_name) {
-        $original_name = wp_basename($file);
-    }
-
-    $moved = [];
-    $target_path = mop_unique_path(wp_normalize_path(trailingslashit($target_dir) . wp_basename($original_name)));
-    $result = mop_rename_with_rollback($file, $target_path, $moved);
-    if (is_wp_error($result)) {
-        return new WP_Error('mop_unlock_move_failed', 'The file could not be moved back into the regular uploads folder.');
+    if (file_exists($target_path) || is_link($target_path)) {
+        return new WP_Error('mop_original_path_occupied', 'The original upload path is already occupied. Move that file before unlocking this one.');
     }
 
     $sidecar_map = get_post_meta($attachment_id, MOP_META_SIDECARS, true);
@@ -1231,17 +1401,36 @@ function mop_unprotect_attachment_files(int $attachment_id, string $file) {
 
     if (empty($sidecar_map)) {
         foreach (mop_get_attachment_sidecar_files($attachment_id, $file) as $sidecar) {
-            $sidecar_map[wp_basename($sidecar)] = wp_basename($sidecar);
+            if (mop_path_is_in_dir($sidecar, MOP_DIR)) {
+                $sidecar_map[wp_basename($sidecar)] = wp_basename($sidecar);
+            }
         }
     }
 
+    $restore = [];
+    $reserved = [$target_path => true];
     foreach ($sidecar_map as $protected_basename => $original_basename) {
         $source = wp_normalize_path(trailingslashit(MOP_DIR) . wp_basename((string) $protected_basename));
         if (!file_exists($source)) {
             continue;
         }
+        if (!mop_path_is_in_dir($source, MOP_DIR)) {
+            return new WP_Error('mop_preview_path_invalid', 'A protected preview path is invalid.');
+        }
+        $target = wp_normalize_path(trailingslashit($target_dir) . wp_basename((string) $original_basename));
+        if (file_exists($target) || is_link($target) || isset($reserved[$target])) {
+            return new WP_Error('mop_preview_path_occupied', 'An original preview path is already occupied. Move that file before unlocking this one.');
+        }
+        $restore[$source] = $target;
+        $reserved[$target] = true;
+    }
 
-        $target = mop_unique_path(wp_normalize_path(trailingslashit($target_dir) . wp_basename((string) $original_basename)));
+    $moved = [];
+    $result = mop_rename_with_rollback($file, $target_path, $moved);
+    if (is_wp_error($result)) {
+        return new WP_Error('mop_unlock_move_failed', 'The file could not be moved back into the regular uploads folder.');
+    }
+    foreach ($restore as $source => $target) {
         $result = mop_rename_with_rollback($source, $target, $moved);
         if (is_wp_error($result)) {
             mop_rollback_moves($moved);
@@ -1250,6 +1439,24 @@ function mop_unprotect_attachment_files(int $attachment_id, string $file) {
     }
 
     update_attached_file($attachment_id, $target_path);
+    if (wp_normalize_path((string) get_attached_file($attachment_id, true)) !== $target_path) {
+        mop_rollback_moves($moved);
+        update_attached_file($attachment_id, $file);
+        return new WP_Error('mop_attachment_path_failed', 'The original file path could not be restored in WordPress.');
+    }
+    $metadata = wp_get_attachment_metadata($attachment_id, true);
+    if (is_array($metadata) && ($metadata['file'] ?? '') !== $relative_path) {
+        $updated_metadata = $metadata;
+        $updated_metadata['file'] = $relative_path;
+        wp_update_attachment_metadata($attachment_id, $updated_metadata);
+        $saved_metadata = wp_get_attachment_metadata($attachment_id, true);
+        if (!is_array($saved_metadata) || ($saved_metadata['file'] ?? '') !== $relative_path) {
+            mop_rollback_moves($moved);
+            update_attached_file($attachment_id, $file);
+            wp_update_attachment_metadata($attachment_id, $metadata);
+            return new WP_Error('mop_attachment_metadata_failed', 'The original media metadata could not be restored.');
+        }
+    }
     delete_post_meta($attachment_id, MOP_META_SIDECARS);
     return true;
 }
@@ -1370,19 +1577,6 @@ function mop_resolve_requested_protected_file(int $attachment_id, string $main_f
     }
 
     return new WP_Error('mop_missing_requested_file', 'The requested protected file could not be found.');
-}
-
-function mop_unique_path(string $path): string {
-    $dir = wp_normalize_path(trailingslashit(dirname($path)));
-    $base = pathinfo($path, PATHINFO_FILENAME);
-    $ext  = pathinfo($path, PATHINFO_EXTENSION);
-    $i = 0;
-    $candidate = $path;
-    while (file_exists($candidate)) {
-        $i++;
-        $candidate = $dir . $base . '-' . $i . '.' . $ext;
-    }
-    return $candidate;
 }
 
 function mop_stream_file(string $filepath, string $display_name, int $attachment_id): void {
