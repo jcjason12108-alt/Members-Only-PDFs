@@ -3,7 +3,7 @@
  * Plugin Name: Members-Only Media
  * Plugin URI: https://github.com/jcjason12108-alt/Members-Only-PDFs
  * Description: Protect selected PDFs, images, documents, and archives for allowed WordPress roles. Filename-free links, private storage names, and original-path restoration on unlock.
- * Version: 1.10.0
+ * Version: 1.10.1
  * Requires at least: 5.8
  * Tested up to: 7.0
  * Requires PHP: 7.4
@@ -20,7 +20,7 @@ require_once __DIR__ . '/plugin-update-checker/plugin-update-checker.php';
 /** -----------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------- */
-define('MOP_VERSION',        '1.10.0');
+define('MOP_VERSION',        '1.10.1');
 define('MOP_META_PROTECT',   '_mop_members_only');     // "1" / "0"
 define('MOP_META_ORIG',      '_mop_orig_filename');    // original filename incl. ext
 define('MOP_META_ORIG_PATH', '_mop_orig_relative_path'); // original location relative to uploads
@@ -804,7 +804,7 @@ add_action('template_redirect', function () {
         }
     }
 
-    mop_stream_file($stream['path'], $stream['name'], $attachment_id);
+    mop_stream_file($stream['path'], $attachment_id);
     exit;
 });
 
@@ -1579,7 +1579,12 @@ function mop_resolve_requested_protected_file(int $attachment_id, string $main_f
     return new WP_Error('mop_missing_requested_file', 'The requested protected file could not be found.');
 }
 
-function mop_stream_file(string $filepath, string $display_name, int $attachment_id): void {
+function mop_locked_download_name(string $filepath, int $attachment_id): string {
+    $extension = strtolower((string) preg_replace('/[^a-z0-9]/i', '', pathinfo($filepath, PATHINFO_EXTENSION)));
+    return 'protected-file-' . $attachment_id . ($extension !== '' ? '.' . $extension : '');
+}
+
+function mop_stream_file(string $filepath, int $attachment_id): void {
     nocache_headers();
     $filetype = wp_check_filetype($filepath);
     $mime = $filetype['type'] ?: get_post_mime_type($attachment_id);
@@ -1589,7 +1594,7 @@ function mop_stream_file(string $filepath, string $display_name, int $attachment
 
     header('X-Robots-Tag: noindex, nofollow, noarchive');
     header('Content-Type: ' . $mime);
-    header('Content-Disposition: inline; filename="' . mop_suggest_filename($display_name, $filepath) . '"');
+    header('Content-Disposition: inline; filename="' . mop_locked_download_name($filepath, $attachment_id) . '"');
     header('Content-Length: ' . filesize($filepath));
     header('Accept-Ranges: none');
 
@@ -1608,14 +1613,6 @@ function mop_stream_file(string $filepath, string $display_name, int $attachment
 
     status_header(200);
     readfile($filepath);
-}
-
-function mop_suggest_filename(string $name, string $filepath): string {
-    $n = trim($name);
-    if ($n === '') $n = wp_basename($filepath);
-    if ($n === '') $n = 'file';
-    $n = str_replace(["\r","\n","\""], ['','',''], $n);
-    return $n;
 }
 
 function mop_404(): void {
